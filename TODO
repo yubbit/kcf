@@ -1,0 +1,10 @@
+- Move utility functions to a separate module
+- Implement different window functions
+- Implement different feature extraction methods
+- Implement dynamic resizing
+- Shift some calculations to tensorflow (or some other optimized module, preferably using CUDA)
+- Implement image segmentation
+- Add a way to save instances of the model, and then compare these against the current frame
+-     if detection fails
+- Experiment with RNNs making use of the same features
+- Reinforcement learning?
