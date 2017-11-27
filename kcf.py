@@ -2,23 +2,34 @@ import cv2
 import numpy as np
 
 """
-Python module that implements object tracking by Kernelized Correlation Filters (KCF)
+Python module that implements object tracking using Kernelized Correlation Filters (KCF)
 Written by Rafael S. Formoso (rsformoso@gmail.com)
 """
 
-def tracker(path, lamb=1e-4, roi=None, padding=2.5, kernel_sigma=10, 
-            output_sigma_factor=0.1, interp_factor=0.075, cell_sz=1, features='hog'):
+def tracker(path, 
+            lamb=1e-4, 
+            roi=None, 
+            padding=1.0, 
+            kernel_sigma=0.5, 
+            output_sigma_factor=0.1, 
+            interp_factor=0.025, 
+            cell_sz=1, 
+            features='hog',
+            window='hann'):
     """Kernelized Correlation Filter tracking.
 
     Keyword arguments:
     path -- The location of the video file to be read
+    lamb -- The regularization term of the linear model
     roi  -- An array of the form [x_pos, y_pos, x_sz, y_sz] which describes the ROI to be tracked
             If the input is None, prompts the user to select a bounding box
     padding -- The ROI is expanded by this percentage for purposes of tracking
-    sigma_factor -- The variance of the training output (i.e. how heavily each shift is penalized)
+    kernel_sigma -- The variance of the Gaussian kernel used in calculating correlation
+    output_sigma_factor -- The variance of the training output (i.e. how heavily each shift is penalized)
     interp_factor -- The rate of adaptation of the tracker
     cell_sz -- The number of pixels per cell (used for generating HOG descriptors)
     features -- The type of feature to be used in the model
+    window -- The window to be applied to the image during feature extraction
     """
 
     cap = cv2.VideoCapture(path)
@@ -40,9 +51,18 @@ def tracker(path, lamb=1e-4, roi=None, padding=2.5, kernel_sigma=10,
     roi[0] = np.floor(roi_center[0] - roi[2] / 2)
     roi[1] = np.floor(roi_center[1] - roi[3] / 2)
 
+    orig_diff = roi[0:2] - orig_roi[0:2]
+
     # Modify this when other features have been applied
     # This is the size of the feature matrix, in the form [x_sz, y_sz]
     window_sz = roi[2:4]
+
+    # Stores the Hann cosine window to apply to the feature matrix. As a result, values in the
+    # center should have a larger effect on the model than those at the fringes
+    if window == 'hann':
+        y_hann = np.hanning(window_sz[1]).reshape(-1,1)
+        x_hann = np.hanning(window_sz[0]).reshape(-1,1)
+        cos_window = y_hann.dot(x_hann.T)
 
     # Generates the output matrix to be used for training. "Penalizes" every shift in the image
     output_sigma = np.sqrt(np.prod(roi[2:4])) * output_sigma_factor
@@ -55,11 +75,13 @@ def tracker(path, lamb=1e-4, roi=None, padding=2.5, kernel_sigma=10,
             break
 
         num_frame += 1
-        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        #frame = frame.reshape(frame.shape[0], frame.shape[1], 1)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame = frame.reshape(frame.shape[0], frame.shape[1], 1)
 
         if num_frame > 1:
             x = get_subwindow(frame, roi)
+            if window == 'hann':
+                x = (x.T * cos_window.T).T
 
             x_f = np.fft.fft2(x, axes=(0, 1))
             kz_f = gaussian_correlation(x_f, xhat_f, kernel_sigma)
@@ -81,11 +103,12 @@ def tracker(path, lamb=1e-4, roi=None, padding=2.5, kernel_sigma=10,
             roi[1] += shift[0] - 1
 
             # Moves the original ROI similarly for display purposes
-            orig_roi[0] += shift[1] - 1
-            orig_roi[1] += shift[0] - 1
+            orig_roi[0:2] = roi[0:2] - orig_diff
 
         # Trains the model given the current ROI
         x = get_subwindow(frame, roi)
+        if window == 'hann':
+            x = (x.T * cos_window.T).T
 
         x_f = np.fft.fft2(x, axes=(0,1))
         k_f = gaussian_correlation(x_f, x_f, kernel_sigma)
@@ -99,6 +122,7 @@ def tracker(path, lamb=1e-4, roi=None, padding=2.5, kernel_sigma=10,
             ahat_f = (1 - interp_factor) * ahat_f + interp_factor * a_f
             xhat_f = (1 - interp_factor) * xhat_f + interp_factor * x_f
 
+        #cv2.imshow('cos_window', cos_window)
         #cv2.imshow('x', get_subwindow(frame, orig_roi))
         cv2.imshow('x', cv2.rectangle(frame, tuple(orig_roi[0:2]), tuple(orig_roi[0:2] + orig_roi[2:4]), (0, 0, 255), 2))
         #cv2.imshow('x', cv2.rectangle(frame, tuple(roi[0:2]), tuple(roi[0:2] + roi[2:4]), (0, 0, 255), 2))
@@ -113,6 +137,9 @@ def get_subwindow(frame, roi):
     frame -- The array representing the image. By default, must be of the form [y, x, ch]
     roi -- The array representing the ROI to be extracted. By default, is of the form
            [x_pos, y_pos, x_sz, y_sz]
+
+    NOTE: This has the side effect of ensuring that the values of roi do not go beyond the image
+          boundaries
     """        
     if roi[0] < 0:
         roi[0] = 0
@@ -166,5 +193,5 @@ def gaussian_correlation(x_f, y_f, sigma):
 
 
 if __name__ == '__main__':
-    #tracker('movie.mp4', roi=[555, 190, 62, 140])
+    tracker('movie.mp4', roi=[555, 190, 62, 140])
 
