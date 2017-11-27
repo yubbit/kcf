@@ -9,13 +9,14 @@ Written by Rafael S. Formoso (rsformoso@gmail.com)
 def tracker(path, 
             lamb=1e-4, 
             roi=None, 
-            padding=1.0, 
+            padding=1.5, 
+            resize=True,
             kernel_sigma=0.5, 
             output_sigma_factor=0.1, 
             interp_factor=0.025, 
             cell_sz=1, 
-            features='hog',
-            window='hann'):
+            features='bw',
+            window=True):
     """Kernelized Correlation Filter tracking.
 
     Keyword arguments:
@@ -24,12 +25,17 @@ def tracker(path,
     roi  -- An array of the form [x_pos, y_pos, x_sz, y_sz] which describes the ROI to be tracked
             If the input is None, prompts the user to select a bounding box
     padding -- The ROI is expanded by this percentage for purposes of tracking
+    resize -- If True, resizes the image prior to feature extraction
     kernel_sigma -- The variance of the Gaussian kernel used in calculating correlation
-    output_sigma_factor -- The variance of the training output (i.e. how heavily each shift is penalized)
+    output_sigma_factor -- The variance of the training output (i.e. how heavily each shift is 
+                           penalized)
     interp_factor -- The rate of adaptation of the tracker
     cell_sz -- The number of pixels per cell (used for generating HOG descriptors)
-    features -- The type of feature to be used in the model
-    window -- The window to be applied to the image during feature extraction
+    features -- The type of feature to be used in the model (hog, bw, color)
+    window -- If True, applies the Hann window to the image prior to feature extraction
+
+    NOTE: Not making use of the Hann window will require much higher values of both sigmas to
+          work
     """
 
     cap = cv2.VideoCapture(path)
@@ -41,6 +47,8 @@ def tracker(path,
         cv2.destroyAllWindows()
         cap = cv2.VideoCapture(path)
 
+    # Converts roi to a numpy array to ensure that it's mutable. Also stores the original_roi
+    # for display purposes
     roi = np.array(roi)
     orig_roi = roi.copy()
 
@@ -55,11 +63,15 @@ def tracker(path,
 
     # Modify this when other features have been applied
     # This is the size of the feature matrix, in the form [x_sz, y_sz]
-    window_sz = roi[2:4]
+    if not resize:
+        window_sz = np.floor(roi[2:4] / cell_sz)
+    else:
+        window_sz = np.floor(np.array([128, 128]) / cell_sz)
+        resize_diff = roi[2:4] / np.array([128, 128])
 
     # Stores the Hann cosine window to apply to the feature matrix. As a result, values in the
     # center should have a larger effect on the model than those at the fringes
-    if window == 'hann':
+    if window:
         y_hann = np.hanning(window_sz[1]).reshape(-1,1)
         x_hann = np.hanning(window_sz[0]).reshape(-1,1)
         cos_window = y_hann.dot(x_hann.T)
@@ -75,12 +87,17 @@ def tracker(path,
             break
 
         num_frame += 1
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        frame = frame.reshape(frame.shape[0], frame.shape[1], 1)
+        # Changes to the HLS color space. This seems to work better somehow
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HLS)
 
         if num_frame > 1:
             x = get_subwindow(frame, roi)
-            if window == 'hann':
+            if resize:
+                x = cv2.resize(x, (128, 128))
+            if features == 'bw':
+                x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+                x = x.reshape(x.shape[0], x.shape[1], 1)
+            if window:
                 x = (x.T * cos_window.T).T
 
             x_f = np.fft.fft2(x, axes=(0, 1))
@@ -99,6 +116,9 @@ def tracker(path,
             if shift[1] > x_f.shape[1] / 2:
                 shift[1] -= x_f.shape[1]
 
+            if resize:
+                shift = np.ceil(shift * resize_diff)
+
             roi[0] += shift[1] - 1
             roi[1] += shift[0] - 1
 
@@ -107,7 +127,12 @@ def tracker(path,
 
         # Trains the model given the current ROI
         x = get_subwindow(frame, roi)
-        if window == 'hann':
+        if resize:
+            x = cv2.resize(x, (128, 128))
+        if features == 'bw':
+            x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+            x = x.reshape(x.shape[0], x.shape[1], 1)
+        if window:
             x = (x.T * cos_window.T).T
 
         x_f = np.fft.fft2(x, axes=(0,1))
@@ -122,10 +147,8 @@ def tracker(path,
             ahat_f = (1 - interp_factor) * ahat_f + interp_factor * a_f
             xhat_f = (1 - interp_factor) * xhat_f + interp_factor * x_f
 
-        #cv2.imshow('cos_window', cos_window)
-        #cv2.imshow('x', get_subwindow(frame, orig_roi))
+        frame = cv2.cvtColor(frame, cv2.COLOR_HLS2BGR)
         cv2.imshow('x', cv2.rectangle(frame, tuple(orig_roi[0:2]), tuple(orig_roi[0:2] + orig_roi[2:4]), (0, 0, 255), 2))
-        #cv2.imshow('x', cv2.rectangle(frame, tuple(roi[0:2]), tuple(roi[0:2] + roi[2:4]), (0, 0, 255), 2))
         if cv2.waitKey(1) == 27:
             break
 

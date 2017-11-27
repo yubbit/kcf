@@ -1,5 +1,5 @@
+- Implement an adaptive interpolation factor
 - Move utility functions to a separate module
-- Implement different window functions
 - Implement different feature extraction methods
 - Implement dynamic resizing
 - Shift some calculations to tensorflow (or some other optimized module, preferably using CUDA)
