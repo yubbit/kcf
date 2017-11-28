@@ -9,13 +9,13 @@ Written by Rafael S. Formoso (rsformoso@gmail.com)
 def tracker(path, 
             lamb=1e-4, 
             roi=None, 
-            padding=1.5, 
+            padding=2.0, 
             resize=True,
             kernel_sigma=0.5, 
             output_sigma_factor=0.1, 
-            interp_factor=0.025, 
+            interp_factor=0.075, 
             cell_sz=1, 
-            features='bw',
+            features='color',
             window=True):
     """Kernelized Correlation Filter tracking.
 
@@ -31,7 +31,7 @@ def tracker(path,
                            penalized)
     interp_factor -- The rate of adaptation of the tracker
     cell_sz -- The number of pixels per cell (used for generating HOG descriptors)
-    features -- The type of feature to be used in the model (hog, bw, color)
+    features -- The type of feature to be used in the model (hog, bw, color, dog)
     window -- If True, applies the Hann window to the image prior to feature extraction
 
     NOTE: Not making use of the Hann window will require much higher values of both sigmas to
@@ -88,12 +88,13 @@ def tracker(path,
 
         num_frame += 1
         # Changes to the HLS color space. This seems to work better somehow
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HLS)
 
         if num_frame > 1:
             x = get_subwindow(frame, roi)
             if resize:
                 x = cv2.resize(x, (128, 128))
+            if features == 'color':
+                x = cv2.cvtColor(x, cv2.COLOR_BGR2HLS)
             if features == 'bw':
                 x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
                 x = x.reshape(x.shape[0], x.shape[1], 1)
@@ -129,6 +130,8 @@ def tracker(path,
         x = get_subwindow(frame, roi)
         if resize:
             x = cv2.resize(x, (128, 128))
+        if features == 'color':
+            x = cv2.cvtColor(x, cv2.COLOR_BGR2HLS)
         if features == 'bw':
             x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
             x = x.reshape(x.shape[0], x.shape[1], 1)
@@ -147,7 +150,6 @@ def tracker(path,
             ahat_f = (1 - interp_factor) * ahat_f + interp_factor * a_f
             xhat_f = (1 - interp_factor) * xhat_f + interp_factor * x_f
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_HLS2BGR)
         cv2.imshow('x', cv2.rectangle(frame, tuple(orig_roi[0:2]), tuple(orig_roi[0:2] + orig_roi[2:4]), (0, 0, 255), 2))
         if cv2.waitKey(1) == 27:
             break
@@ -217,4 +219,6 @@ def gaussian_correlation(x_f, y_f, sigma):
 
 if __name__ == '__main__':
     tracker('movie.mp4', roi=[555, 190, 62, 140])
+    #tracker('movie2.webm')
+    #tracker('movie.mp4')
 
